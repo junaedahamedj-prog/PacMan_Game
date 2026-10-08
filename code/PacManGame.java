@@ -281,7 +281,12 @@ public class PacManGame extends JFrame {
             targetRow = row;
             dirX = 0;
             dirY = -1;
-            frightened = false;
+            frightened = frightenTimer > 0;
+        }
+
+        boolean isWalkable(int tileCol, int tileRow) {
+            return tileRow >= 0 && tileRow < ROWS && tileCol >= 0 && tileCol < COLS
+                    && currentMap[tileRow][tileCol] != 1;
         }
 
         void chooseDirection() {
@@ -292,6 +297,8 @@ public class PacManGame extends JFrame {
 
             int pacCol = (int) (pacman.x / TILE_SIZE);
             int pacRow = (int) (pacman.y / TILE_SIZE);
+            if (!isWalkable(pacCol, pacRow))
+                return;
             ArrayDeque<int[]> queue = new ArrayDeque<>();
             distance[pacRow][pacCol] = 0;
             queue.add(new int[] { pacCol, pacRow });
@@ -300,8 +307,7 @@ public class PacManGame extends JFrame {
                 for (int[] dir : dirs) {
                     int nextCol = cell[0] + dir[0];
                     int nextRow = cell[1] + dir[1];
-                    if (nextRow >= 0 && nextRow < ROWS && nextCol >= 0 && nextCol < COLS
-                            && currentMap[nextRow][nextCol] != 1 && distance[nextRow][nextCol] == -1) {
+                    if (isWalkable(nextCol, nextRow) && distance[nextRow][nextCol] == -1) {
                         distance[nextRow][nextCol] = distance[cell[1]][cell[0]] + 1;
                         queue.addLast(new int[] { nextCol, nextRow });
                     }
@@ -310,21 +316,41 @@ public class PacManGame extends JFrame {
 
             int[] chosen = null;
             int bestDistance = frightened ? Integer.MIN_VALUE : Integer.MAX_VALUE;
-            for (int[] dir : dirs) {
-                int nextCol = col + dir[0];
-                int nextRow = row + dir[1];
-                if (nextRow < 0 || nextRow >= ROWS || nextCol < 0 || nextCol >= COLS
-                        || currentMap[nextRow][nextCol] == 1 || distance[nextRow][nextCol] < 0)
-                    continue;
-                int candidateDistance = distance[nextRow][nextCol];
-                if (chosen == null || (frightened ? candidateDistance > bestDistance
-                        : candidateDistance < bestDistance)) {
-                    chosen = dir;
-                    bestDistance = candidateDistance;
+            for (int pass = 0; pass < 2 && chosen == null; pass++) {
+                for (int[] dir : dirs) {
+                    int nextCol = col + dir[0];
+                    int nextRow = row + dir[1];
+                    if (!isWalkable(nextCol, nextRow) || distance[nextRow][nextCol] < 0)
+                        continue;
+
+                    boolean overlapsGhost = false;
+                    for (Ghost other : ghosts) {
+                        if (other == this)
+                            continue;
+                        boolean occupiesNext = (other.col == nextCol && other.row == nextRow)
+                                || (other.targetCol == nextCol && other.targetRow == nextRow);
+                        if (occupiesNext) {
+                            overlapsGhost = true;
+                            break;
+                        }
+                    }
+                    if (pass == 0 && overlapsGhost)
+                        continue;
+
+                    int candidateDistance = distance[nextRow][nextCol];
+                    if (chosen == null || (frightened ? candidateDistance > bestDistance
+                            : candidateDistance < bestDistance)) {
+                        chosen = dir;
+                        bestDistance = candidateDistance;
+                    }
                 }
             }
-            if (chosen == null)
+            if (chosen == null) {
+                dirX = dirY = 0;
+                targetCol = col;
+                targetRow = row;
                 return;
+            }
             dirX = chosen[0];
             dirY = chosen[1];
             targetCol = col + chosen[0];
@@ -332,6 +358,12 @@ public class PacManGame extends JFrame {
         }
 
         void update() {
+            if (!isWalkable(col, row) || !isWalkable(targetCol, targetRow)
+                    || !Double.isFinite(x) || !Double.isFinite(y)
+                    || x < 0 || y < 0 || x >= mapW() || y >= mapH()) {
+                reset();
+                return;
+            }
             double tx = targetCol * TILE_SIZE + TILE_SIZE / 2.0;
             double ty = targetRow * TILE_SIZE + TILE_SIZE / 2.0;
             double dist = Math.hypot(tx - x, ty - y);
@@ -342,15 +374,26 @@ public class PacManGame extends JFrame {
                 row = targetRow;
                 chooseDirection();
             } else {
-                x += dirX * speed;
-                y += dirY * speed;
+                double nextX = x + dirX * speed;
+                double nextY = y + dirY * speed;
+                for (Ghost other : ghosts) {
+                    if (other != this && Math.hypot(nextX - other.x, nextY - other.y) < SPRITE_SIZE - 2) {
+                        targetCol = col;
+                        targetRow = row;
+                        dirX = Double.compare(col * TILE_SIZE + TILE_SIZE / 2.0, x);
+                        dirY = Double.compare(row * TILE_SIZE + TILE_SIZE / 2.0, y);
+                        return;
+                    }
+                }
+                x = nextX;
+                y = nextY;
             }
         }
 
         void draw(Graphics2D g) {
             BufferedImage img;
             if (frightened) {
-                boolean flashing = frightenTimer < 100 && (frightenTimer / 10) % 2 == 0;
+                boolean flashing = frightenTimer < 117 && (frightenTimer / 12) % 2 == 0;
                 img = (flashing && imgScaredFlash != null) ? imgScaredFlash : imgScared;
             } else {
                 img = sprite;
@@ -437,7 +480,7 @@ public class PacManGame extends JFrame {
             } else if (currentMap[gy][gx] == 2) {
                 currentMap[gy][gx] = 3;
                 score += 50;
-                frightenTimer = 300;
+                frightenTimer = 350;
                 for (Ghost g : ghosts)
                     g.frightened = true;
                 Sound.powerPellet();
@@ -1289,7 +1332,7 @@ public class PacManGame extends JFrame {
         bindKeys();
         updateHud();
 
-        loop = new javax.swing.Timer(16, e -> {
+        loop = new javax.swing.Timer(14, e -> {
             updateGame();
             updateHud();
             if (center.getComponent(1).isShowing())
