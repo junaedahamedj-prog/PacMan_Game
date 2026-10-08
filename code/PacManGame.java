@@ -418,18 +418,206 @@ public class PacManGame extends JFrame {
     // GAME LOGIC
    
     static boolean isWallCollision(double x, double y) {
-        double radius = pacman.radius - 1;
-        double[][] pts = { { x - radius, y - radius }, { x + radius, y - radius }, { x - radius, y + radius },
-                { x + radius, y + radius } };
-        for (double[] p : pts) {
-            int gx = (int) Math.floor(p[0] / TILE_SIZE);
-            int gy = (int) Math.floor(p[1] / TILE_SIZE);
-            if (gy < 0 || gy >= ROWS || gx < 0 || gx >= COLS)
-                return true;
-            if (currentMap[gy][gx] == 1)
-                return true;
-        }
+        double radius = pacman.radius;
+        int firstCol = (int) Math.floor((x - radius) / TILE_SIZE);
+        int lastCol = (int) Math.floor((x + radius) / TILE_SIZE);
+        int firstRow = (int) Math.floor((y - radius) / TILE_SIZE);
+        int lastRow = (int) Math.floor((y + radius) / TILE_SIZE);
+        if (firstCol < 0 || firstRow < 0 || lastCol >= COLS || lastRow >= ROWS)
+            return true;
+        for (int row = firstRow; row <= lastRow; row++)
+            for (int col = firstCol; col <= lastCol; col++)
+                if (currentMap[row][col] == 1)
+                    return true;
         return false;
+    }
+
+    static double nearestTileCenter(double position) {
+        return Math.round((position - TILE_SIZE / 2.0) / TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2.0;
+    }
+
+    static void setPacmanDirection(int dx, int dy) {
+        pacman.dirX = dx;
+        pacman.dirY = dy;
+        if (dx == 1)
+            pacman.facing = "right";
+        else if (dx == -1)
+            pacman.facing = "left";
+        else if (dy == 1)
+            pacman.facing = "down";
+        else if (dy == -1)
+            pacman.facing = "up";
+    }
+
+    static boolean canMovePacmanFrom(double x, double y, int dx, int dy) {
+        return !isWallCollision(x, y) && !isWallCollision(x + dx * pacman.speed, y + dy * pacman.speed);
+    }
+
+    static boolean canTurnPacmanAt(double x, double y, int dx, int dy) {
+        int col = (int) (x / TILE_SIZE);
+        int row = (int) (y / TILE_SIZE);
+        int nextCol = col + dx;
+        int nextRow = row + dy;
+        if (row < 0 || row >= ROWS || col < 0 || col >= COLS
+                || nextRow < 0 || nextRow >= ROWS || nextCol < 0 || nextCol >= COLS
+                || currentMap[row][col] == 1 || currentMap[nextRow][nextCol] == 1)
+            return false;
+        return canMovePacmanFrom(x, y, dx, dy);
+    }
+
+    static boolean tryQueuedPacmanTurn() {
+        int requestedX = pacman.nextDirX;
+        int requestedY = pacman.nextDirY;
+        boolean movingHorizontally = pacman.dirX != 0;
+        double alongPosition = movingHorizontally ? pacman.x : pacman.y;
+        double center = nearestTileCenter(alongPosition);
+        double tolerance = TILE_SIZE * 0.30;
+        double bestDistance = Double.POSITIVE_INFINITY;
+        double turnPosition = center;
+        boolean foundTurn = false;
+
+        for (int offset = -1; offset <= 1; offset++) {
+            double candidate = center + offset * TILE_SIZE;
+            double forwardDistance = (candidate - alongPosition) * (movingHorizontally ? pacman.dirX : pacman.dirY);
+            if (forwardDistance < -tolerance || forwardDistance > pacman.speed)
+                continue;
+
+            double turnX = movingHorizontally ? candidate : nearestTileCenter(pacman.x);
+            double turnY = movingHorizontally ? nearestTileCenter(pacman.y) : candidate;
+            if (!canTurnPacmanAt(turnX, turnY, requestedX, requestedY))
+                continue;
+
+            double distance = Math.abs(forwardDistance);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                turnPosition = candidate;
+                foundTurn = true;
+            }
+        }
+
+        if (!foundTurn)
+            return false;
+
+        double forwardDistance = (turnPosition - alongPosition) * (movingHorizontally ? pacman.dirX : pacman.dirY);
+        if (movingHorizontally) {
+            pacman.x = turnPosition;
+            pacman.y = nearestTileCenter(pacman.y);
+        } else {
+            pacman.x = nearestTileCenter(pacman.x);
+            pacman.y = turnPosition;
+        }
+        setPacmanDirection(requestedX, requestedY);
+        pacman.nextDirX = pacman.nextDirY = 0;
+
+        double remaining = forwardDistance > 0 ? pacman.speed - forwardDistance : pacman.speed;
+        double nextX = pacman.x + pacman.dirX * remaining;
+        double nextY = pacman.y + pacman.dirY * remaining;
+        if (!isWallCollision(nextX, nextY)) {
+            pacman.x = nextX;
+            pacman.y = nextY;
+        }
+        return true;
+    }
+
+    static boolean alignPacmanForUpcomingTurn() {
+        boolean movingHorizontally = pacman.dirX != 0;
+        double alongPosition = movingHorizontally ? pacman.x : pacman.y;
+        double center = nearestTileCenter(alongPosition);
+        double lookAhead = TILE_SIZE * 0.30 + pacman.speed;
+        double bestDistance = Double.POSITIVE_INFINITY;
+        boolean foundTurn = false;
+
+        for (int offset = -1; offset <= 1; offset++) {
+            double candidate = center + offset * TILE_SIZE;
+            double forwardDistance = (candidate - alongPosition) * (movingHorizontally ? pacman.dirX : pacman.dirY);
+            if (forwardDistance <= pacman.speed || forwardDistance > lookAhead)
+                continue;
+
+            double turnX = movingHorizontally ? candidate : nearestTileCenter(pacman.x);
+            double turnY = movingHorizontally ? nearestTileCenter(pacman.y) : candidate;
+            if (!canTurnPacmanAt(turnX, turnY, pacman.nextDirX, pacman.nextDirY))
+                continue;
+
+            if (forwardDistance < bestDistance) {
+                bestDistance = forwardDistance;
+                foundTurn = true;
+            }
+        }
+
+        if (!foundTurn)
+            return false;
+
+        double alongX = pacman.x + pacman.dirX * pacman.speed;
+        double alongY = pacman.y + pacman.dirY * pacman.speed;
+        if (isWallCollision(alongX, alongY)) {
+            pacman.dirX = pacman.dirY = 0;
+            return true;
+        }
+        pacman.x = alongX;
+        pacman.y = alongY;
+
+        double centerX = movingHorizontally ? pacman.x : nearestTileCenter(pacman.x);
+        double centerY = movingHorizontally ? nearestTileCenter(pacman.y) : pacman.y;
+        double adjustX = movingHorizontally ? 0 : Math.max(-pacman.speed,
+                Math.min(pacman.speed, centerX - pacman.x));
+        double adjustY = movingHorizontally ? Math.max(-pacman.speed,
+                Math.min(pacman.speed, centerY - pacman.y)) : 0;
+        double alignedX = pacman.x + adjustX;
+        double alignedY = pacman.y + adjustY;
+        if (!isWallCollision(alignedX, alignedY)) {
+            pacman.x = alignedX;
+            pacman.y = alignedY;
+        }
+        return true;
+    }
+
+    static void updatePacmanMovement() {
+        int requestedX = pacman.nextDirX;
+        int requestedY = pacman.nextDirY;
+        if (requestedX != 0 || requestedY != 0) {
+            boolean sameDirection = requestedX == pacman.dirX && requestedY == pacman.dirY;
+            boolean moving = pacman.dirX != 0 || pacman.dirY != 0;
+            boolean reverseDirection = moving && requestedX == -pacman.dirX && requestedY == -pacman.dirY;
+            if (sameDirection) {
+                pacman.nextDirX = pacman.nextDirY = 0;
+            } else if (reverseDirection) {
+                if (canMovePacmanFrom(pacman.x, pacman.y, requestedX, requestedY)) {
+                    setPacmanDirection(requestedX, requestedY);
+                    pacman.nextDirX = pacman.nextDirY = 0;
+                }
+            } else if (!moving) {
+                if (canMovePacmanFrom(pacman.x, pacman.y, requestedX, requestedY)) {
+                    setPacmanDirection(requestedX, requestedY);
+                    pacman.nextDirX = pacman.nextDirY = 0;
+                } else {
+                    double alignedX = nearestTileCenter(pacman.x);
+                    double alignedY = nearestTileCenter(pacman.y);
+                    double tolerance = TILE_SIZE * 0.30;
+                    if (Math.abs(alignedX - pacman.x) <= tolerance
+                            && Math.abs(alignedY - pacman.y) <= tolerance
+                            && canTurnPacmanAt(alignedX, alignedY, requestedX, requestedY)) {
+                        pacman.x = alignedX;
+                        pacman.y = alignedY;
+                        setPacmanDirection(requestedX, requestedY);
+                        pacman.nextDirX = pacman.nextDirY = 0;
+                    }
+                }
+            } else {
+                if (tryQueuedPacmanTurn())
+                    return;
+                if (alignPacmanForUpcomingTurn())
+                    return;
+            }
+        }
+
+        double nextX = pacman.x + pacman.dirX * pacman.speed;
+        double nextY = pacman.y + pacman.dirY * pacman.speed;
+        if (!isWallCollision(nextX, nextY)) {
+            pacman.x = nextX;
+            pacman.y = nextY;
+        } else {
+            pacman.dirX = pacman.dirY = 0;
+        }
     }
 
     static void updateGame() {
@@ -443,31 +631,7 @@ public class PacManGame extends JFrame {
                     g.frightened = false;
         }
 
-        // queued turn
-        if (pacman.nextDirX != 0 || pacman.nextDirY != 0) {
-            double tx = pacman.x + pacman.nextDirX * pacman.speed;
-            double ty = pacman.y + pacman.nextDirY * pacman.speed;
-            if (!isWallCollision(tx, ty)) {
-                pacman.dirX = pacman.nextDirX;
-                pacman.dirY = pacman.nextDirY;
-                if (pacman.dirX == 1)
-                    pacman.facing = "right";
-                if (pacman.dirX == -1)
-                    pacman.facing = "left";
-                if (pacman.dirY == 1)
-                    pacman.facing = "down";
-                if (pacman.dirY == -1)
-                    pacman.facing = "up";
-            }
-        }
-
-        // move
-        double nx = pacman.x + pacman.dirX * pacman.speed;
-        double ny = pacman.y + pacman.dirY * pacman.speed;
-        if (!isWallCollision(nx, ny)) {
-            pacman.x = nx;
-            pacman.y = ny;
-        }
+        updatePacmanMovement();
 
         // eat food & power pellets
         int gx = (int) Math.floor(pacman.x / TILE_SIZE);
@@ -1302,7 +1466,13 @@ public class PacManGame extends JFrame {
         BufferedImage appIcon = loadImage("icon1.png"); // <- add this line
         if (appIcon != null)
             setIconImage(appIcon); // <- add this line
-        setDefaultCloseOperation(EXIT_ON_CLOSE);
+        setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                showExit();
+            }
+        });
         getContentPane().setBackground(BG);
         setLayout(new BorderLayout());
 
@@ -1965,29 +2135,37 @@ public class PacManGame extends JFrame {
     JDialog buildExit(boolean modal) {
         JPanel p = new JPanel();
         p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
-        p.setBorder(new EmptyBorder(8, 12, 8, 12));
+        p.setBorder(new EmptyBorder(18, 28, 18, 28));
 
-        JLabel t = label("GAME TERMINATED", pixel(24f), RED500);
+        JLabel t = label("EXIT GAME", pixel(24f), RED500);
         t.setAlignmentX(CENTER_ALIGNMENT);
         JLabel s = label("THANKS FOR PLAYING PAC-MAN!", vt(28f), SLATE300);
         s.setAlignmentX(CENTER_ALIGNMENT);
         PulseIcon icon = new PulseIcon();
         icon.setAlignmentX(CENTER_ALIGNMENT);
-        ArcadeButton exitButton = new ArcadeButton("EXIT GAME", ICON_NONE, RED950, RED500, RED200, 12f, false, 8);
+        ArcadeButton exitButton = new ArcadeButton("YES, EXIT GAME", ICON_NONE, RED950, RED500, RED200, 12f, false, 8);
         exitButton.setPreferredSize(new Dimension(440, 56));
         exitButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, 56));
         exitButton.setAlignmentX(CENTER_ALIGNMENT);
+        ArcadeButton cancelButton = new ArcadeButton("CANCEL", ICON_NONE, SLATE900, SLATE600, SLATE300, 12f, false,
+                8);
+        cancelButton.setPreferredSize(new Dimension(440, 56));
+        cancelButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, 56));
+        cancelButton.setAlignmentX(CENTER_ALIGNMENT);
 
         p.add(t);
-        p.add(Box.createVerticalStrut(14));
+        p.add(Box.createVerticalStrut(22));
         p.add(s);
-        p.add(Box.createVerticalStrut(10));
+        p.add(Box.createVerticalStrut(18));
         p.add(icon);
-        p.add(Box.createVerticalStrut(10));
+        p.add(Box.createVerticalStrut(18));
         p.add(exitButton);
+        p.add(Box.createVerticalStrut(12));
+        p.add(cancelButton);
 
         JDialog d = makeDialog(p, RED500, new Color(239, 68, 68), modal);
         exitButton.addActionListener(e -> System.exit(0));
+        cancelButton.addActionListener(e -> d.dispose());
         return d;
     }
 
