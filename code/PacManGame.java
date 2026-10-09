@@ -35,7 +35,7 @@ import javax.swing.table.JTableHeader;
 public class PacManGame extends JFrame {
 
    
-    // COLORS (same palette as the HTML / Tailwind version)
+    // COLORS: shared arcade palette
    
     static final Color BG = new Color(0x050508);
     static final Color SLATE950 = new Color(0x020617);
@@ -77,7 +77,7 @@ public class PacManGame extends JFrame {
     static final Color MENU_BTN_BG = new Color(0x280C4B); // purple-950 @ 60%
 
    
-    // MAP 1: 1 wall, 0 food, 2 power pellet, 3 empty, 4 ghost house
+    // MAP 2: 1 wall, 0 food, 2 power pellet, 3 empty, 4 ghost house
    
     static final int[][] GOOGLE_PACMAN_MAP = {
 
@@ -110,7 +110,7 @@ public class PacManGame extends JFrame {
 
     };
 
-    // MAP 2 : 1 wall, 0 food, 2 power pellet, 3 empty, 4 ghost house
+    // MAP 1: 1 wall, 0 food, 2 power pellet, 3 empty, 4 ghost house
 
     static final int[][] MAP_1 = {
             { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
@@ -145,7 +145,7 @@ public class PacManGame extends JFrame {
                     1, 1, 1 }
     };
 
-     // MAP 3: (text map: # wall, . food, o power, space empty)
+    // MAP 3: (text map: # wall, . food, o power, space empty)
 
     static int[][] parseMap(String[] rows) {
         int[][] m = new int[rows.length][rows[0].length()];
@@ -172,9 +172,8 @@ public class PacManGame extends JFrame {
             "#o......................................o#",
             "##########################################" });
 
-    // ---------------- map list + per-map settings (same order everywhere)
-    // ----------------
-    // Map 1 = MAP_1, Map 2 = your original GOOGLE_PACMAN_MAP, Map 3 = MAP_3
+    // MAP SETTINGS: map order, names, sizes, and spawn points
+    // MAP_1 is Map 1, GOOGLE_PACMAN_MAP is Map 2, and MAP_3 is Map 3.
     static final int[][][] MAPS = { MAP_1, GOOGLE_PACMAN_MAP, MAP_3 };
     static final String[] MAP_NAMES = { "NEON ARCADE", "CSE - 4", "ZIGZAG HALLS" };
     static final int[] MAP_TILE = { 20, 18, 18 };
@@ -194,7 +193,7 @@ public class PacManGame extends JFrame {
         return "EASY".equals(difficulty) || "HARD".equals(difficulty) ? difficulty : "NORMAL";
     }
 
-    // these change with the selected map
+    // ACTIVE MAP DIMENSIONS: updated whenever a map is selected
     static int TILE_SIZE = 20;
     static int SPRITE_SIZE = 16;
     static int COLS = 38, ROWS = 15;
@@ -218,7 +217,7 @@ public class PacManGame extends JFrame {
     }
 
    
-    // GAME STATE
+    // GAME STATE: current run, player preferences, and shared entities
    
     static int score = 0;
     static int highScore;
@@ -229,6 +228,7 @@ public class PacManGame extends JFrame {
     static int frightenTimer = 0;
     static int[][] currentMap = copyMap();
 
+    // LEADERBOARD STORAGE: persistent top-ten run records
     static Path leaderboardFile() {
         return new File(System.getProperty("user.home"), ".pacman-classic/leaderboard.tsv").toPath();
     }
@@ -326,12 +326,12 @@ public class PacManGame extends JFrame {
 
     static LeaderboardPanel leaderboardPanel;
 
-    // overlay (READY / PAUSED / GAME OVER / VICTORY)
+    // GAME OVERLAY: ready, paused, victory, and game-over messages
     static boolean overlayVisible = false;
     static String overlayTitle = "READY!";
     static String overlaySubtitle = "PRESS ANY KEY TO START";
 
-    // sprites
+    // SPRITES: loaded images used by the game and developer cards
     static BufferedImage imgFood, imgPower, imgScared, imgScaredFlash, imgHeart;
     static BufferedImage imgPacUp, imgPacDown, imgPacLeft, imgPacRight;
     static BufferedImage imgRed, imgPink, imgBlue, imgOrange;
@@ -346,7 +346,7 @@ public class PacManGame extends JFrame {
     }
 
    
-    // PAC-MAN
+    // PAC-MAN: player entity and movement state
    
     static class Pac {
         double x, y;
@@ -367,7 +367,7 @@ public class PacManGame extends JFrame {
     static final Pac pacman = new Pac();
 
    
-    // GHOSTS
+    // GHOSTS: enemy movement, targeting, and rendering
     // FIX: ghosts move tile-to-tile and always snap exactly onto the centre
     // of the next tile before choosing a new direction, so they can never
     // freeze (the old code waited for an exact pixel match that almost never
@@ -534,7 +534,7 @@ public class PacManGame extends JFrame {
     }
 
    
-    // GAME LOGIC
+    // GAME LOGIC: movement, collisions, scoring, and run completion
    
     static boolean isWallCollision(double x, double y) {
         double radius = pacman.radius;
@@ -911,7 +911,7 @@ public class PacManGame extends JFrame {
     }
 
    
-    // ASSETS
+    // ASSETS: image loading and sprite preparation
    
     static BufferedImage loadImage(String name) {
         try {
@@ -962,7 +962,7 @@ public class PacManGame extends JFrame {
     }
 
    
-    // FONTS (optional TTF files, otherwise a monospaced fallback)
+    // FONTS: bundled retro fonts with a monospaced fallback
    
     static Font pixelBase, vtBase;
     static boolean fontsLoaded = false;
@@ -1002,7 +1002,7 @@ public class PacManGame extends JFrame {
     }
 
    
-    // SOUND (synthesised retro effects, like the Web Audio version)
+    // SOUND: synthesized arcade effects and mute control
    
     static class Sound {
         static boolean muted = false;
@@ -1076,7 +1076,7 @@ public class PacManGame extends JFrame {
     }
 
    
-    // DRAWING HELPERS
+    // DRAWING HELPERS: shared shapes, text, icons, and CRT scanlines
    
     static Graphics2D aa(Graphics g0) {
         Graphics2D g = (Graphics2D) g0.create();
@@ -1217,6 +1217,7 @@ public class PacManGame extends JFrame {
     }
 
    
+    // UI COMPONENTS: reusable arcade buttons, panels, and icons
     /** Arcade style button (rounded, neon pink on hover). */
     static class ArcadeButton extends JButton {
         final int icon;
@@ -1284,6 +1285,7 @@ public class PacManGame extends JFrame {
         }
     }
 
+    // SOUND CONTROL: clickable speaker button for the game header
     /** Sound on/off button (speaker icon). */
     static class MuteButton extends JButton {
         boolean hover = false;
@@ -1341,6 +1343,7 @@ public class PacManGame extends JFrame {
         }
     }
 
+    // ARCADE FRAME: outer border and leaderboard/menu panel treatments
     /** Outer purple "arcade machine" frame. */
     static class FramePanel extends JPanel {
         FramePanel() {
@@ -1722,7 +1725,7 @@ public class PacManGame extends JFrame {
     }
 
    
-    // MAZE DRAWING
+    // MAZE RENDERING: draw map tiles, Pac-Man, and ghosts
    
     static void drawGame(Graphics2D g) {
         // map
@@ -1786,7 +1789,7 @@ public class PacManGame extends JFrame {
     }
 
    
-    // WINDOW
+    // WINDOW AND NAVIGATION: cards, shared HUD, and application shell
    
     final CardLayout cards = new CardLayout();
     final JPanel center = new JPanel(cards);
@@ -1856,7 +1859,7 @@ public class PacManGame extends JFrame {
         livesPanel.repaint();
     }
 
-    // ---- header / footer --------------------------------------------
+    // HEADER AND FOOTER: shared status and copyright bars
     JComponent buildHeader() {
         JPanel header = new JPanel(new BorderLayout());
         header.setOpaque(false);
@@ -1890,7 +1893,7 @@ public class PacManGame extends JFrame {
         return footer;
     }
 
-    // ---- main menu ----------------------------------------------------
+    // MAIN MENU: navigation to game modes, help, and leaderboard
     JComponent buildMenu() {
         JPanel menu = new JPanel();
         menu.setOpaque(false);
@@ -1950,6 +1953,7 @@ public class PacManGame extends JFrame {
         return b;
     }
 
+    // RUN SETUP: player name and difficulty selection before each game
     class RunSetupDialog extends JDialog {
         final JTextField nameInput = new JTextField(playerName, 16);
         final JToggleButton[] difficultyOptions = new JToggleButton[3];
@@ -2169,7 +2173,7 @@ public class PacManGame extends JFrame {
         }
     }
 
-    // ---- game screen ----------------------------------------------------
+    // GAME SCREEN: HUD, maze canvas, and in-game controls
     JComponent buildGameScreen() {
         JPanel screen = new JPanel(new BorderLayout());
         screen.setOpaque(false);
@@ -2190,15 +2194,6 @@ public class PacManGame extends JFrame {
         top.add(livesBox, BorderLayout.EAST);
         screen.add(top, BorderLayout.NORTH);
 
-        // Map - 1
-
-        // canvasPanel = new CanvasPanel();
-        // JPanel holder = new JPanel(new GridBagLayout());
-        // holder.setOpaque(false);
-        // holder.add(canvasPanel);
-        // screen.add(holder, BorderLayout.CENTER);
-
-        // Map - 2
         canvasPanel = new CanvasPanel();
         screen.add(canvasPanel, BorderLayout.CENTER);
 
@@ -2226,6 +2221,7 @@ public class PacManGame extends JFrame {
         return screen;
     }
 
+    // MAP SELECTION: choose a maze and configure the next run
     JComponent buildMapSelect() {
         JPanel p = new JPanel();
         p.setOpaque(false);
@@ -2270,7 +2266,7 @@ public class PacManGame extends JFrame {
         return b;
     }
 
-    // ---- keyboard -------------------------------------------------------
+    // KEYBOARD CONTROLS: movement and pause shortcuts
     void bindKeys() {
         bindKey("pressed UP", () -> setNext(0, -1));
         bindKey("pressed W", () -> setNext(0, -1));
@@ -2299,7 +2295,7 @@ public class PacManGame extends JFrame {
     }
 
    
-    // MODALS (HOW TO PLAY / ABOUT US / EXIT)
+    // MODAL SCREENS: shared dialog styling and help/about/exit content
    
     static class ModalPanel extends JPanel {
         final Color border, glowColor;
@@ -2327,6 +2323,7 @@ public class PacManGame extends JFrame {
         }
     }
 
+    // MAP CARD: clickable map preview and label
     /** One clickable map choice: mini-preview + name. */
     static class MapCard extends JButton {
         final int index;
@@ -2450,6 +2447,7 @@ public class PacManGame extends JFrame {
         return "<html><div style='width:" + width + "px'>" + body + "</div></html>";
     }
 
+    // HOW TO PLAY: controls and gameplay instructions
     JDialog buildHowToPlay(boolean modal) {
         JPanel p = new JPanel();
         p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
@@ -2501,9 +2499,10 @@ public class PacManGame extends JFrame {
         p.add(Box.createVerticalStrut(12));
     }
 
+    // ABOUT US: developer cards and project information
     /** One developer card (photo slot + name + role). */
     class DevCard extends JPanel {
-        private static final int SIZE = 140;
+        private static final int SIZE = 180;
         private final String name, role;
         private final Color accent, bg, border;
         private final BufferedImage photo; // already cropped and scaled
@@ -2550,6 +2549,8 @@ public class PacManGame extends JFrame {
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+            g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+            g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
             int w = getWidth(), h = getHeight();
 
             g2.setColor(bg);
@@ -2562,7 +2563,7 @@ public class PacManGame extends JFrame {
             if (photo != null) {
                 Shape old = g2.getClip();
                 g2.setClip(new java.awt.geom.Ellipse2D.Float(x, y, SIZE, SIZE));
-                g2.drawImage(photo, x, y, null); // no scaling here, so it stays sharp
+                g2.drawImage(photo, x, y, null);
                 g2.setClip(old);
             } else {
                 g2.setColor(border);
@@ -2571,11 +2572,21 @@ public class PacManGame extends JFrame {
             g2.setColor(accent);
             g2.setStroke(new BasicStroke(3f));
             g2.drawOval(x, y, SIZE, SIZE);
-            // Dev Name
-            g2.setFont(pixel(12f));
+            // Developer names use the largest arcade font size that fits their card.
+            float nameSize = 12f;
+            Font nameFont = pixel(nameSize);
+            int nameWidth = Math.max(0, w - 20);
+            while (nameSize > 7f && nameFont.getStringBounds(name, g2.getFontRenderContext()).getWidth() > nameWidth) {
+                nameSize -= 0.5f;
+                nameFont = pixel(nameSize);
+            }
+            g2.setFont(nameFont);
             FontMetrics fm = g2.getFontMetrics();
             g2.setColor(accent);
+            Shape previousClip = g2.getClip();
+            g2.clipRect(10, y + SIZE + 8, nameWidth, 28);
             g2.drawString(name, (w - fm.stringWidth(name)) / 2, y + SIZE + 26);
+            g2.setClip(previousClip);
             // Dev Role
             g2.setFont(vt(20f));
             fm = g2.getFontMetrics();
@@ -2608,7 +2619,7 @@ public class PacManGame extends JFrame {
         // PHOTOS: put dev1.png, dev2.png, dev3.png in the images/ folder.
         JPanel cardsRow = new JPanel(new GridLayout(1, 3, 16, 0));
         cardsRow.setOpaque(false);
-        cardsRow.add(new DevCard("", "JUNAED AHMED", "LEAD DEVELOPER", CYAN400, CYAN950, new Color(0x155E75),
+        cardsRow.add(new DevCard("", "JUNAED AHAMED", "LEAD DEVELOPER", CYAN400, CYAN950, new Color(0x155E75),
                 devPhotos[2]));
         cardsRow.add(
                 new DevCard("", "IMTIYAZ ALI", "GAME ARCHITECT", PINK400, PINK950, new Color(0x9D174D), devPhotos[1]));
@@ -2674,6 +2685,7 @@ public class PacManGame extends JFrame {
         return d;
     }
 
+    // EXIT DIALOG: confirmation and animated power icon
     /** Red power icon that pulses (like animate-pulse). */
     static class PulseIcon extends JPanel {
         final long start = System.currentTimeMillis();
@@ -2752,6 +2764,7 @@ public class PacManGame extends JFrame {
     }
 
    
+    // APPLICATION ENTRY POINT
     public static void main(String[] args) throws Exception {
         SwingUtilities.invokeLater(() -> new PacManGame().setVisible(true));
     }
