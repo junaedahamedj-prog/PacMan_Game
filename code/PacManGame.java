@@ -5,9 +5,20 @@ import java.awt.geom.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.InputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -16,6 +27,9 @@ import javax.imageio.ImageIO;
 import javax.sound.sampled.*;
 import javax.swing.*;
 import javax.swing.border.*;
+import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.DefaultTableModel;
+import javax.swing.table.JTableHeader;
 
 
 public class PacManGame extends JFrame {
@@ -171,6 +185,14 @@ public class PacManGame extends JFrame {
             { { 16, 5 }, { 17, 5 }, { 18, 5 }, { 19, 5 } },
             { { 16, 5 }, { 17, 5 }, { 18, 5 }, { 19, 5 } } };
     static int selectedMap = 0;
+    static final Preferences PREFS = Preferences.userNodeForPackage(PacManGame.class);
+    static String playerName = PREFS.get("pacman_player_name", "PLAYER");
+    static String selectedDifficulty = normalizeDifficulty(PREFS.get("pacman_difficulty", "NORMAL"));
+    static boolean resultRecorded = false;
+
+    static String normalizeDifficulty(String difficulty) {
+        return "EASY".equals(difficulty) || "HARD".equals(difficulty) ? difficulty : "NORMAL";
+    }
 
     // these change with the selected map
     static int TILE_SIZE = 20;
@@ -207,7 +229,103 @@ public class PacManGame extends JFrame {
     static int frightenTimer = 0;
     static int[][] currentMap = copyMap();
 
-    static final Preferences PREFS = Preferences.userNodeForPackage(PacManGame.class);
+    static Path leaderboardFile() {
+        return new File(System.getProperty("user.home"), ".pacman-classic/leaderboard.tsv").toPath();
+    }
+
+    static class RunRecord {
+        final String name;
+        final int score;
+        final int map;
+        final String difficulty;
+        final int mazesCleared;
+        final int hearts;
+        final LocalDate date;
+
+        RunRecord(String name, int score, int map, String difficulty, int mazesCleared, int hearts, LocalDate date) {
+            this.name = name;
+            this.score = score;
+            this.map = map;
+            this.difficulty = difficulty;
+            this.mazesCleared = mazesCleared;
+            this.hearts = hearts;
+            this.date = date;
+        }
+    }
+
+    static class LeaderboardStore {
+        static final DateTimeFormatter DISPLAY_DATE = DateTimeFormatter.ofPattern("MM/dd/yy");
+
+        static List<RunRecord> load() throws IOException {
+            Path file = leaderboardFile();
+            List<RunRecord> records = new ArrayList<>();
+            if (!Files.exists(file))
+                return records;
+
+            int lineNumber = 0;
+            for (String line : Files.readAllLines(file, StandardCharsets.UTF_8)) {
+                lineNumber++;
+                String[] fields = line.split("\\t", -1);
+                try {
+                    if (fields.length != 7)
+                        throw new IllegalArgumentException("expected 7 fields");
+                    RunRecord record = new RunRecord(decode(fields[0]), Integer.parseInt(fields[1]),
+                            Integer.parseInt(fields[2]), decode(fields[3]), Integer.parseInt(fields[4]),
+                            Integer.parseInt(fields[5]), LocalDate.parse(fields[6]));
+                    if (record.map < 0 || record.map >= MAP_NAMES.length || record.score < 0
+                            || record.mazesCleared < 0 || record.hearts < 0)
+                        throw new IllegalArgumentException("invalid score values");
+                    records.add(record);
+                } catch (RuntimeException ex) {
+                    System.err.println("Ignoring invalid leaderboard entry on line " + lineNumber + ": "
+                            + ex.getMessage());
+                }
+            }
+            sortAndLimit(records);
+            return records;
+        }
+
+        static void save(List<RunRecord> records) throws IOException {
+            Path file = leaderboardFile();
+            Files.createDirectories(file.getParent());
+            Path temporary = Files.createTempFile(file.getParent(), "leaderboard-", ".tmp");
+            try {
+                List<String> lines = new ArrayList<>();
+                for (RunRecord record : records) {
+                    lines.add(encode(record.name) + "\t" + record.score + "\t" + record.map + "\t"
+                            + encode(record.difficulty) + "\t" + record.mazesCleared + "\t" + record.hearts + "\t"
+                            + record.date);
+                }
+                Files.write(temporary, lines, StandardCharsets.UTF_8);
+                try {
+                    Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING,
+                            StandardCopyOption.ATOMIC_MOVE);
+                } catch (AtomicMoveNotSupportedException ex) {
+                    Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING);
+                }
+            } finally {
+                Files.deleteIfExists(temporary);
+            }
+        }
+
+        static void sortAndLimit(List<RunRecord> records) {
+            Collections.sort(records, Comparator.comparingInt((RunRecord record) -> record.score).reversed()
+                    .thenComparing(record -> record.date, Comparator.reverseOrder()));
+            if (records.size() > 10)
+                records.subList(10, records.size()).clear();
+        }
+
+        static String encode(String value) {
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(value.getBytes(StandardCharsets.UTF_8));
+        }
+
+        static String decode(String value) {
+            return new String(Base64.getUrlDecoder().decode(value), StandardCharsets.UTF_8);
+        }
+    }
+
+    static LeaderboardPanel leaderboardPanel;
+
     // overlay (READY / PAUSED / GAME OVER / VICTORY)
     static boolean overlayVisible = false;
     static String overlayTitle = "READY!";
@@ -233,7 +351,7 @@ public class PacManGame extends JFrame {
     static class Pac {
         double x, y;
         double radius = TILE_SIZE / 2.0 - 2;
-        final double speed = 2;
+        double speed = 2;
         int dirX = 0, dirY = 0, nextDirX = 0, nextDirY = 0;
         String facing = "right";
 
@@ -259,7 +377,7 @@ public class PacManGame extends JFrame {
         final BufferedImage sprite;
         final Color fallback;
         final int initialX, initialY;
-        final double speed = 1.6;
+        final double speed;
         int col, row, targetCol, targetRow, dirX, dirY;
         double x, y;
         boolean frightened;
@@ -269,6 +387,7 @@ public class PacManGame extends JFrame {
             this.fallback = fallback;
             this.initialX = gx;
             this.initialY = gy;
+            this.speed = ghostSpeed();
             reset();
         }
 
@@ -672,8 +791,7 @@ public class PacManGame extends JFrame {
                     Sound.death();
                     lives--;
                     if (lives <= 0) {
-                        gameOver = true;
-                        showOverlay("GAME OVER", "FINAL SCORE: " + score);
+                        finishGame(false);
                     } else {
                         pacman.reset();
                         for (Ghost g : ghosts)
@@ -693,10 +811,57 @@ public class PacManGame extends JFrame {
                         break;
                     }
             if (!left) {
-                gameOver = true;
-                showOverlay("VICTORY!", "YOU CLEARED THE MAZE!");
+                finishGame(true);
             }
         }
+    }
+
+    static double ghostSpeed() {
+        switch (selectedDifficulty) {
+            case "EASY":
+                return 1.3;
+            case "HARD":
+                return 1.9;
+            default:
+                return 1.6;
+        }
+    }
+
+    static double pacmanSpeed() {
+        switch (selectedDifficulty) {
+            case "EASY":
+                return 1.8;
+            case "HARD":
+                return 2.2;
+            default:
+                return 2.0;
+        }
+    }
+
+    static void finishGame(boolean victory) {
+        gameOver = true;
+        if (!resultRecorded) {
+            resultRecorded = true;
+            if (score > highScore) {
+                highScore = score;
+                PREFS.putInt("pacman_high_score", highScore);
+            }
+            RunRecord record = new RunRecord(playerName, score, selectedMap, selectedDifficulty,
+                    victory ? 1 : 0, lives, LocalDate.now());
+            try {
+                List<RunRecord> records = LeaderboardStore.load();
+                records.add(record);
+                LeaderboardStore.sortAndLimit(records);
+                LeaderboardStore.save(records);
+                if (leaderboardPanel != null)
+                    leaderboardPanel.refresh();
+            } catch (IOException ex) {
+                JOptionPane.showMessageDialog(null, "The game result could not be saved:\n" + ex.getMessage(),
+                        "Leaderboard save error", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+        showOverlay(victory ? "VICTORY!" : "GAME OVER",
+                victory ? "YOU CLEARED THE MAZE!" : "FINAL SCORE: " + score);
     }
 
     static void startNewGame() {
@@ -707,6 +872,8 @@ public class PacManGame extends JFrame {
         gameOver = false;
         gamePaused = false;
         gameStarted = true;
+        resultRecorded = false;
+        pacman.speed = pacmanSpeed();
         frightenTimer = 0;
         pacman.reset();
         ghosts = new ArrayList<>();
@@ -719,6 +886,7 @@ public class PacManGame extends JFrame {
     }
 
     static CanvasPanel canvasPanel;
+    String leaderboardReturnCard = "menu";
 
     static void showOverlay(String title, String subtitle) {
         overlayTitle = title;
@@ -816,8 +984,8 @@ public class PacManGame extends JFrame {
         if (fontsLoaded)
             return;
         fontsLoaded = true;
-        pixelBase = null; // use the old fallback font
-        vtBase = null;
+        pixelBase = readFont("PressStart2P-Regular.ttf");
+        vtBase = readFont("VT323-Regular.ttf");
     }
 
     /** Press Start 2P (font-pixel) */
@@ -1193,6 +1361,174 @@ public class PacManGame extends JFrame {
         }
     }
 
+    static class LeaderboardPanel extends JPanel {
+        final DefaultTableModel model;
+        final JTable table;
+        final List<RunRecord> records = new ArrayList<>();
+
+        LeaderboardPanel(Runnable returnAction) {
+            setOpaque(false);
+            setLayout(new BorderLayout(0, 10));
+            setBorder(new EmptyBorder(22, 24, 18, 24));
+
+            JPanel title = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 2));
+            title.setOpaque(false);
+            Icon trophy = new Icon() {
+                @Override
+                public int getIconWidth() {
+                    return 22;
+                }
+
+                @Override
+                public int getIconHeight() {
+                    return 22;
+                }
+
+                @Override
+                public void paintIcon(Component c, Graphics graphics, int x, int y) {
+                    Graphics2D g = aa(graphics);
+                    g.setColor(YELLOW400);
+                    g.fill(new RoundRectangle2D.Double(x + 4, y + 2, 14, 9, 3, 3));
+                    g.setStroke(new BasicStroke(2f));
+                    g.draw(new Arc2D.Double(x, y + 2, 9, 10, 270, 180, Arc2D.OPEN));
+                    g.draw(new Arc2D.Double(x + 13, y + 2, 9, 10, 90, 180, Arc2D.OPEN));
+                    g.fillRect(x + 10, y + 11, 3, 5);
+                    g.fillRect(x + 6, y + 17, 11, 3);
+                    g.dispose();
+                }
+            };
+            JLabel heading = label("TOP 10 LEADERBOARD", pixel(14f), YELLOW400);
+            title.add(new JLabel(trophy));
+            title.add(heading);
+            add(title, BorderLayout.NORTH);
+
+            String[] columns = { "#", "PLAYER", "SCORE", "MAP", "DIFF", "MAZES", "HEARTS", "DATE" };
+            model = new DefaultTableModel(columns, 0) {
+                @Override
+                public boolean isCellEditable(int row, int column) {
+                    return false;
+                }
+            };
+            table = new JTable(model) {
+                @Override
+                public void doLayout() {
+                    setRowHeight(Math.max(18, Math.min(36, getHeight() / 10)));
+                    super.doLayout();
+                }
+            };
+            table.setFillsViewportHeight(true);
+            table.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
+            table.setShowGrid(true);
+            table.setGridColor(new Color(0x7C, 0x3A, 0xB8, 105));
+            table.setIntercellSpacing(new Dimension(1, 1));
+            table.setBackground(SLATE950);
+            table.setForeground(SLATE200);
+            table.setFont(pixel(9f));
+            table.setSelectionBackground(SLATE950);
+            table.setSelectionForeground(SLATE200);
+            table.setRowSelectionAllowed(false);
+
+            int[] preferredWidths = { 40, 175, 92, 84, 70, 68, 78, 102 };
+            for (int column = 0; column < columns.length; column++) {
+                table.getColumnModel().getColumn(column).setPreferredWidth(preferredWidths[column]);
+                table.getColumnModel().getColumn(column).setMinWidth(column == 1 ? 86 : 42);
+                DefaultTableCellRenderer renderer = new DefaultTableCellRenderer() {
+                    @Override
+                    public Component getTableCellRendererComponent(JTable source, Object value, boolean isSelected,
+                            boolean hasFocus, int row, int column) {
+                        super.getTableCellRendererComponent(source, value, false, false, row, column);
+                        boolean empty = row >= records.size();
+                        boolean first = row == 0 && !records.isEmpty();
+                        setFont(pixel(9f));
+                        setHorizontalAlignment(column == 1 ? SwingConstants.LEFT : SwingConstants.CENTER);
+                        setBorder(column == 1 ? new EmptyBorder(0, 8, 0, 4) : new EmptyBorder(0, 2, 0, 2));
+                        setOpaque(true);
+                        if (first) {
+                            setBackground(new Color(0x48, 0x1C, 0x72, 120));
+                            setForeground(column == 0 ? YELLOW400 : SLATE200);
+                        } else {
+                            setBackground(row % 2 == 0 ? new Color(0x08, 0x0E, 0x1D) : SLATE950);
+                            setForeground(empty ? SLATE600 : (column == 0 ? YELLOW500 : SLATE300));
+                        }
+                        return this;
+                    }
+                };
+                table.getColumnModel().getColumn(column).setCellRenderer(renderer);
+            }
+            JTableHeader header = table.getTableHeader();
+            header.setReorderingAllowed(false);
+            header.setResizingAllowed(false);
+            header.setPreferredSize(new Dimension(10, 32));
+            header.setBackground(new Color(0x0C, 0x14, 0x26));
+            header.setForeground(CYAN300);
+            header.setFont(pixel(9f));
+            header.setBorder(new LineBorder(new Color(0x7C, 0x3A, 0xB8, 140), 1));
+            DefaultTableCellRenderer headerRenderer = new DefaultTableCellRenderer();
+            headerRenderer.setHorizontalAlignment(SwingConstants.CENTER);
+            headerRenderer.setForeground(CYAN300);
+            headerRenderer.setBackground(new Color(0x0C, 0x14, 0x26));
+            headerRenderer.setFont(pixel(9f));
+            headerRenderer.setBorder(new EmptyBorder(2, 2, 2, 2));
+            header.setDefaultRenderer(headerRenderer);
+
+            JPanel grid = new JPanel(new BorderLayout());
+            grid.setOpaque(false);
+            grid.setBorder(new LineBorder(new Color(0x7C, 0x3A, 0xB8, 170), 1));
+            grid.add(header, BorderLayout.NORTH);
+            grid.add(table, BorderLayout.CENTER);
+            add(grid, BorderLayout.CENTER);
+
+            JPanel footer = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
+            footer.setOpaque(false);
+            ArcadeButton back = new ArcadeButton("RETURN", ICON_NONE, SLATE800, SLATE600, GRAY300, 12f, false, 6);
+            back.setPreferredSize(new Dimension(150, 42));
+            back.addActionListener(e -> returnAction.run());
+            footer.add(back);
+            add(footer, BorderLayout.SOUTH);
+        }
+
+        void refresh() {
+            try {
+                records.clear();
+                records.addAll(LeaderboardStore.load());
+                model.setRowCount(0);
+                for (int rank = 0; rank < 10; rank++) {
+                    if (rank >= records.size()) {
+                        model.addRow(new Object[] { rank + 1, "---", "---", "---", "---", "---", "---", "--/--/--" });
+                    } else {
+                        RunRecord record = records.get(rank);
+                        model.addRow(new Object[] { rank + 1, (rank == 0 ? "> " : "") + record.name,
+                                String.format("%,d", record.score), "MAP-" + (record.map + 1), record.difficulty,
+                                record.mazesCleared, record.hearts,
+                                LeaderboardStore.DISPLAY_DATE.format(record.date) });
+                    }
+                }
+                table.repaint();
+            } catch (IOException ex) {
+                records.clear();
+                model.setRowCount(0);
+                for (int rank = 0; rank < 10; rank++)
+                    model.addRow(new Object[] { rank + 1, "---", "---", "---", "---", "---", "---", "--/--/--" });
+                JOptionPane.showMessageDialog(this, "The leaderboard could not be read:\n" + ex.getMessage(),
+                        "Leaderboard read error", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+
+        @Override
+        protected void paintComponent(Graphics g0) {
+            super.paintComponent(g0);
+            Graphics2D g = aa(g0);
+            RoundRectangle2D outline = new RoundRectangle2D.Double(8, 8, getWidth() - 17, getHeight() - 17, 16, 16);
+            glow(g, outline, PURPLE500, 7, 64);
+            g.setColor(new Color(0x0B, 0x12, 0x20));
+            g.fill(outline);
+            g.setColor(alpha(PURPLE400, 210));
+            g.setStroke(new BasicStroke(2f));
+            g.draw(outline);
+            g.dispose();
+        }
+    }
+
     /** Menu button box with the blue neon glow. */
     static class MenuBox extends JPanel {
         MenuBox() {
@@ -1459,6 +1795,7 @@ public class PacManGame extends JFrame {
     final LivesPanel livesPanel = new LivesPanel();
     final JLabel mapCaption = label("MAP 1: NEON ARCADE", vt(20f), SLATE400);
     javax.swing.Timer loop;
+    boolean leaderboardPausedGame;
 
     public PacManGame() {
         super("Pac-Man Classic");
@@ -1487,6 +1824,8 @@ public class PacManGame extends JFrame {
         center.add(buildMenu(), "menu");
         center.add(buildGameScreen(), "game");
         center.add(buildMapSelect(), "maps"); // <-- NEW (must stay after "game")
+        leaderboardPanel = new LeaderboardPanel(this::returnFromLeaderboard);
+        center.add(leaderboardPanel, "leaderboard");
         root.add(center, BorderLayout.CENTER);
         root.add(buildFooter(), BorderLayout.SOUTH);
 
@@ -1568,22 +1907,26 @@ public class PacManGame extends JFrame {
         box.setLayout(new BoxLayout(box, BoxLayout.Y_AXIS));
         box.setBorder(new EmptyBorder(24, 28, 24, 28));
         box.setAlignmentX(CENTER_ALIGNMENT);
-        box.setMaximumSize(new Dimension(470, 330));
-        box.setPreferredSize(new Dimension(470, 330));
+        box.setMaximumSize(new Dimension(470, 350));
+        box.setPreferredSize(new Dimension(470, 350));
 
         ArcadeButton start = menuButton("> START GAME", ICON_PLAY);
         ArcadeButton how = menuButton("> HOW TO PLAY", ICON_GAMEPAD);
         ArcadeButton about = menuButton("> ABOUT US", ICON_USERS);
+        ArcadeButton leaderboard = menuButton("> TOP 10", ICON_NONE);
         ArcadeButton exit = menuButton("> EXIT", ICON_POWER);
         start.addActionListener(e -> cards.show(center, "maps"));
         how.addActionListener(e -> showHowToPlay());
         about.addActionListener(e -> showAboutUs());
+        leaderboard.addActionListener(e -> showLeaderboard("menu"));
         exit.addActionListener(e -> showExit());
         box.add(start);
         box.add(Box.createVerticalStrut(8));
         box.add(how);
         box.add(Box.createVerticalStrut(8));
         box.add(about);
+        box.add(Box.createVerticalStrut(8));
+        box.add(leaderboard);
         box.add(Box.createVerticalStrut(8));
         box.add(exit);
         menu.add(box);
@@ -1602,9 +1945,228 @@ public class PacManGame extends JFrame {
     ArcadeButton menuButton(String text, int icon) {
         ArcadeButton b = new ArcadeButton(text, icon, MENU_BTN_BG, PURPLE400, PURPLE200, 14f, true, 8);
         b.setAlignmentX(CENTER_ALIGNMENT);
-        b.setPreferredSize(new Dimension(414, 64));
-        b.setMaximumSize(new Dimension(414, 64));
+        b.setPreferredSize(new Dimension(414, 54));
+        b.setMaximumSize(new Dimension(414, 54));
         return b;
+    }
+
+    class RunSetupDialog extends JDialog {
+        final JTextField nameInput = new JTextField(playerName, 16);
+        final JToggleButton[] difficultyOptions = new JToggleButton[3];
+        boolean confirmed;
+
+        RunSetupDialog() {
+            super(PacManGame.this, "RUN SETUP", true);
+            setUndecorated(true);
+            setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+
+            JPanel root = new JPanel(new BorderLayout(0, 10)) {
+                @Override
+                protected void paintComponent(Graphics graphics) {
+                    Graphics2D g = aa(graphics);
+                    RoundRectangle2D panel = new RoundRectangle2D.Double(8, 8, getWidth() - 17,
+                            getHeight() - 17, 18, 18);
+                    glow(g, panel, PURPLE500, 8, 74);
+                    g.setColor(new Color(0x0B, 0x12, 0x20));
+                    g.fill(panel);
+                    g.setColor(PURPLE400);
+                    g.setStroke(new BasicStroke(2f));
+                    g.draw(panel);
+                    g.dispose();
+                }
+            };
+            root.setOpaque(false);
+            root.setBorder(new EmptyBorder(20, 28, 22, 28));
+            setContentPane(root);
+
+            JPanel heading = new JPanel(new BorderLayout());
+            heading.setOpaque(false);
+            JLabel title = label("PLAYER SETUP", pixel(14f), YELLOW400);
+            heading.add(title, BorderLayout.WEST);
+            JButton close = new JButton("X");
+            close.setFont(vt(22f));
+            close.setForeground(SLATE400);
+            close.setContentAreaFilled(false);
+            close.setBorderPainted(false);
+            close.setOpaque(false);
+            close.setFocusable(false);
+            close.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            close.addActionListener(e -> dispose());
+            heading.add(close, BorderLayout.EAST);
+            root.add(heading, BorderLayout.NORTH);
+
+            JPanel fields = new JPanel();
+            fields.setOpaque(false);
+            fields.setLayout(new BoxLayout(fields, BoxLayout.Y_AXIS));
+
+            JLabel map = label("MAP " + (selectedMap + 1) + "  /  " + MAP_NAMES[selectedMap],
+                    pixel(9f), CYAN300);
+            map.setAlignmentX(LEFT_ALIGNMENT);
+            fields.add(map);
+            fields.add(Box.createVerticalStrut(18));
+
+            JLabel nameLabel = label("PLAYER NAME", pixel(10f), YELLOW400);
+            nameLabel.setAlignmentX(LEFT_ALIGNMENT);
+            fields.add(nameLabel);
+            fields.add(Box.createVerticalStrut(8));
+            nameInput.setFont(vt(25f));
+            nameInput.setForeground(SLATE200);
+            nameInput.setBackground(SLATE950);
+            nameInput.setCaretColor(CYAN300);
+            nameInput.setSelectionColor(PURPLE900);
+            nameInput.setSelectedTextColor(Color.WHITE);
+            nameInput.setBorder(new CompoundBorder(new LineBorder(PURPLE500, 2),
+                    new EmptyBorder(5, 10, 5, 10)));
+            nameInput.setMaximumSize(new Dimension(Integer.MAX_VALUE, 48));
+            nameInput.setAlignmentX(LEFT_ALIGNMENT);
+            fields.add(nameInput);
+            fields.add(Box.createVerticalStrut(6));
+
+            JLabel hint = label("UP TO 14 CHARACTERS", vt(16f), SLATE500);
+            hint.setAlignmentX(LEFT_ALIGNMENT);
+            fields.add(hint);
+            fields.add(Box.createVerticalStrut(20));
+
+            JLabel difficultyLabel = label("DIFFICULTY", pixel(10f), YELLOW400);
+            difficultyLabel.setAlignmentX(LEFT_ALIGNMENT);
+            fields.add(difficultyLabel);
+            fields.add(Box.createVerticalStrut(8));
+
+            JPanel difficultyRow = new JPanel(new GridLayout(1, 3, 8, 0));
+            difficultyRow.setOpaque(false);
+            ButtonGroup group = new ButtonGroup();
+            String[] choices = { "EASY", "NORMAL", "HARD" };
+            for (int i = 0; i < choices.length; i++) {
+                final String choice = choices[i];
+                JToggleButton option = new JToggleButton(choice) {
+                    @Override
+                    protected void paintComponent(Graphics graphics) {
+                        Graphics2D g = aa(graphics);
+                        int inset = 3;
+                        RoundRectangle2D button = new RoundRectangle2D.Double(inset, inset,
+                                getWidth() - inset * 2 - 1, getHeight() - inset * 2 - 1, 9, 9);
+                        if (isSelected())
+                            glow(g, button, PURPLE500, 4, 55);
+                        g.setColor(isSelected() ? PURPLE950 : SLATE950);
+                        g.fill(button);
+                        g.setColor(isSelected() ? PURPLE400 : SLATE600);
+                        g.setStroke(new BasicStroke(1.5f));
+                        g.draw(button);
+                        g.setFont(pixel(8f));
+                        g.setColor(isSelected() ? YELLOW400 : SLATE400);
+                        drawCentered(g, getText(), getWidth() / 2, getHeight() / 2 + 4);
+                        g.dispose();
+                    }
+                };
+                option.setFocusable(false);
+                option.setContentAreaFilled(false);
+                option.setBorderPainted(false);
+                option.setOpaque(false);
+                option.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                option.setPreferredSize(new Dimension(100, 44));
+                group.add(option);
+                difficultyRow.add(option);
+                difficultyOptions[i] = option;
+                if (choice.equals(normalizeDifficulty(selectedDifficulty)))
+                    option.setSelected(true);
+            }
+            difficultyRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
+            difficultyRow.setAlignmentX(LEFT_ALIGNMENT);
+            fields.add(difficultyRow);
+            fields.add(Box.createVerticalStrut(8));
+            JLabel difficultyHint = label("Adjusts PAC-MAN AND GHOST SPEED", vt(16f), SLATE500);
+            difficultyHint.setAlignmentX(LEFT_ALIGNMENT);
+            fields.add(difficultyHint);
+            fields.add(Box.createVerticalStrut(4));
+            JLabel validation = label("", vt(17f), RED200);
+            validation.setAlignmentX(LEFT_ALIGNMENT);
+            fields.add(validation);
+            root.add(fields, BorderLayout.CENTER);
+
+            JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+            actions.setOpaque(false);
+            ArcadeButton cancel = new ArcadeButton("CANCEL", ICON_NONE, SLATE800, SLATE600, GRAY300,
+                    9f, false, 7);
+            cancel.setPreferredSize(new Dimension(110, 42));
+            cancel.addActionListener(e -> dispose());
+            ArcadeButton start = new ArcadeButton("START GAME", ICON_PLAY, MENU_BTN_BG, PURPLE400,
+                    Color.WHITE, 9f, false, 7);
+            start.setPreferredSize(new Dimension(160, 42));
+            start.addActionListener(e -> {
+                String name = nameInput.getText().trim();
+                if (name.isEmpty()) {
+                    validation.setText("PLEASE ENTER A PLAYER NAME");
+                    nameInput.requestFocusInWindow();
+                    return;
+                }
+                confirmed = true;
+                dispose();
+            });
+            actions.add(cancel);
+            actions.add(start);
+            root.add(actions, BorderLayout.SOUTH);
+
+            getRootPane().setDefaultButton(start);
+            root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
+                    .put(KeyStroke.getKeyStroke("ESCAPE"), "cancel");
+            root.getActionMap().put("cancel", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    dispose();
+                }
+            });
+
+            setGlassPane(scanlines());
+            getGlassPane().setVisible(true);
+            setMinimumSize(new Dimension(440, 360));
+            setPreferredSize(new Dimension(480, 390));
+            pack();
+            setLocationRelativeTo(PacManGame.this);
+        }
+
+        String selectedDifficulty() {
+            for (int i = 0; i < difficultyOptions.length; i++) {
+                if (difficultyOptions[i].isSelected())
+                    return new String[] { "EASY", "NORMAL", "HARD" }[i];
+            }
+            return "NORMAL";
+        }
+    }
+
+    boolean configureRun() {
+        RunSetupDialog dialog = new RunSetupDialog();
+        dialog.setVisible(true);
+        if (!dialog.confirmed)
+            return false;
+
+        String name = dialog.nameInput.getText().trim();
+        int codePoints = name.codePointCount(0, name.length());
+        if (codePoints > 14)
+            name = name.substring(0, name.offsetByCodePoints(0, 14));
+        playerName = name;
+        selectedDifficulty = dialog.selectedDifficulty();
+        PREFS.put("pacman_player_name", playerName);
+        PREFS.put("pacman_difficulty", selectedDifficulty);
+        return true;
+    }
+
+    void showLeaderboard(String returnCard) {
+        leaderboardReturnCard = returnCard;
+        if ("game".equals(returnCard) && !gameOver && !gamePaused) {
+            leaderboardPausedGame = true;
+            togglePause("PRESS P TO RESUME");
+        }
+        leaderboardPanel.refresh();
+        cards.show(center, "leaderboard");
+    }
+
+    void returnFromLeaderboard() {
+        cards.show(center, leaderboardReturnCard);
+        if (leaderboardPausedGame) {
+            leaderboardPausedGame = false;
+            gamePaused = false;
+            hideOverlay();
+        }
     }
 
     // ---- game screen ----------------------------------------------------
@@ -1648,12 +2210,18 @@ public class PacManGame extends JFrame {
             cards.show(center, "menu");
             gameStarted = false;
         });
+        ArcadeButton leaderboard = smallButton("TOP 10");
+        leaderboard.addActionListener(e -> showLeaderboard("game"));
         ArcadeButton pause = smallButton("PAUSE");
         pause.addActionListener(e -> togglePause("PRESS PAUSE TO RESUME"));
         bottom.add(back, BorderLayout.WEST);
         mapCaption.setHorizontalAlignment(SwingConstants.CENTER);
         bottom.add(mapCaption, BorderLayout.CENTER);
-        bottom.add(pause, BorderLayout.EAST);
+        JPanel rightButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        rightButtons.setOpaque(false);
+        rightButtons.add(leaderboard);
+        rightButtons.add(pause);
+        bottom.add(rightButtons, BorderLayout.EAST);
         screen.add(bottom, BorderLayout.SOUTH);
         return screen;
     }
@@ -1675,6 +2243,8 @@ public class PacManGame extends JFrame {
             card.setAlignmentX(CENTER_ALIGNMENT);
             card.setMaximumSize(new Dimension(640, 110));
             card.addActionListener(e -> {
+                if (!configureRun())
+                    return;
                 selectedMap = idx;
                 mapCaption.setText("MAP " + (idx + 1) + ": " + MAP_NAMES[idx]);
                 cards.show(center, "game");
