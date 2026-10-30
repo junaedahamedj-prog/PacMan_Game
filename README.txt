@@ -14,6 +14,7 @@ YOUR OWN FILES (all optional)
   images/dev1.png    About Us photo for MD UDOY HOSSAIN JOY
   images/dev2.png    About Us photo for IMTIYAZ ALI
   images/dev3.png    About Us photo for JUNAED AHMED
+                     dev3.JPG is also supported.
                      (If a photo is missing, the letter U / I / J is shown.)
   fonts/PressStart2P-Regular.ttf and fonts/VT323-Regular.ttf
                      Same retro fonts as the HTML version (free on Google Fonts).

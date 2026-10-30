@@ -3,9 +3,17 @@ import java.awt.event.*;
 import java.awt.font.TextAttribute;
 import java.awt.geom.*;
 import java.awt.image.BufferedImage;
+import java.awt.image.ConvolveOp;
+import java.awt.image.Kernel;
+import java.awt.image.ConvolveOp;
+import java.awt.image.Kernel;
 import java.io.File;
-import java.io.InputStream;
 import java.io.IOException;
+import java.io.InputStream;
+<<<<<<< HEAD
+import java.io.IOException;
+=======
+>>>>>>> ea4fc56 (New features)
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
@@ -222,6 +230,9 @@ public class PacManGame extends JFrame {
     static int score = 0;
     static int highScore;
     static int lives = 3;
+    static int ghostsEaten;
+    static int mazesCleared;
+    static int leaderboardRank;
     static boolean gameOver = false;
     static boolean gamePaused = false;
     static boolean gameStarted = false;
@@ -786,6 +797,7 @@ public class PacManGame extends JFrame {
                 if (ghost.frightened) {
                     Sound.eatGhost();
                     score += 200;
+                    ghostsEaten++;
                     ghost.reset();
                 } else {
                     Sound.death();
@@ -840,6 +852,10 @@ public class PacManGame extends JFrame {
 
     static void finishGame(boolean victory) {
         gameOver = true;
+<<<<<<< HEAD
+=======
+        mazesCleared = victory ? 1 : 0;
+>>>>>>> ea4fc56 (New features)
         if (!resultRecorded) {
             resultRecorded = true;
             if (score > highScore) {
@@ -852,6 +868,10 @@ public class PacManGame extends JFrame {
                 List<RunRecord> records = LeaderboardStore.load();
                 records.add(record);
                 LeaderboardStore.sortAndLimit(records);
+<<<<<<< HEAD
+=======
+                leaderboardRank = records.indexOf(record) + 1;
+>>>>>>> ea4fc56 (New features)
                 LeaderboardStore.save(records);
                 if (leaderboardPanel != null)
                     leaderboardPanel.refresh();
@@ -869,6 +889,9 @@ public class PacManGame extends JFrame {
         currentMap = copyMap();
         score = 0;
         lives = 3;
+        ghostsEaten = 0;
+        mazesCleared = 0;
+        leaderboardRank = 0;
         gameOver = false;
         gamePaused = false;
         gameStarted = true;
@@ -941,6 +964,8 @@ public class PacManGame extends JFrame {
         imgHeart = loadImage("heart.png");
         for (int i = 0; i < 3; i++)
             devPhotos[i] = loadImage("dev" + (i + 1) + ".png");
+        if (devPhotos[2] == null)
+            devPhotos[2] = loadImage("dev3.JPG");
 
         // frightened "flash" frame: blue -> white, face -> red
 
@@ -1642,10 +1667,10 @@ public class PacManGame extends JFrame {
             overlayBtn = new ArcadeButton("CONTINUE", ICON_NONE, PURPLE900, PURPLE400, Color.WHITE, 12f, false, 8) {
                 @Override
                 public void setBounds(int x, int y, int w, int h) {
-                    super.setBounds(x, y, 170, 54); // always keep the button small
+                    super.setBounds(x, y, 170, 48);
                 }
             };
-            overlayBtn.setSize(170, 54);
+            overlayBtn.setSize(170, 48);
             overlayBtn.setVisible(false);
             overlayBtn.addActionListener(e -> {
                 if (gameOver)
@@ -1666,8 +1691,11 @@ public class PacManGame extends JFrame {
 
         @Override
         public void doLayout() {
-            // fixed size, centered under the "GAME OVER" text
-            overlayBtn.setBounds((getWidth() - 170) / 2, getHeight() / 2 + 28, 170, 54);
+            double s = scale();
+            int panelHeight = (int) Math.round(mapH() * s + 2 * (8 + CANVAS_PAD));
+            int panelTop = (getHeight() - panelHeight) / 2;
+            int y = panelTop + panelHeight / 2 + (gameOver ? 78 : 28);
+            overlayBtn.setBounds((getWidth() - 170) / 2, y, 170, 48);
         }
 
         /** How much the maze is scaled up to fit the panel. */
@@ -1707,18 +1735,51 @@ public class PacManGame extends JFrame {
                 g.setColor(new Color(0, 0, 0, 205));
                 g.fill(new RoundRectangle2D.Double(14, 14, pw - 29, ph - 29, 12, 12));
                 int cx = pw / 2, cy = ph / 2;
-                g.setFont(pixel(36f));
-                for (int rr = 8; rr >= 2; rr -= 3) {
-                    g.setColor(new Color(255, 0, 85, 28));
-                    for (int a = 0; a < 360; a += 45)
-                        drawCentered(g, overlayTitle, cx + (int) (rr * Math.cos(Math.toRadians(a))),
-                                cy - 22 + (int) (rr * Math.sin(Math.toRadians(a))));
+                if (gameOver) {
+                    g.setFont(pixel(20f));
+                    for (int rr = 6; rr >= 2; rr -= 2) {
+                        g.setColor(new Color(255, 0, 85, 35));
+                        for (int a = 0; a < 360; a += 45)
+                            drawCentered(g, overlayTitle, cx + (int) (rr * Math.cos(Math.toRadians(a))),
+                                    cy - 74 + (int) (rr * Math.sin(Math.toRadians(a))));
+                    }
+                    g.setColor(YELLOW400);
+                    drawCentered(g, overlayTitle, cx, cy - 74);
+                    g.setFont(pixel(10f));
+                    g.setColor(SLATE300);
+                    drawCentered(g, "PLAYER: " + playerName, cx, cy - 48);
+                    g.setFont(vt(21f));
+                    g.setColor(CYAN300);
+                    drawCentered(g, String.format("SCORE: %06d", score), cx, cy - 24);
+                    g.setFont(vt(15f));
+                    g.setColor(CYAN300);
+                    drawCentered(g, "MAP: " + MAP_NAMES[selectedMap] + "  DIFF: " + selectedDifficulty,
+                            cx - pw / 4, cy + 2);
+                    drawCentered(g, "MAZES CLEARED: " + mazesCleared, cx + pw / 4, cy + 2);
+                    drawCentered(g, "GHOSTS EATEN: " + ghostsEaten, cx - pw / 4, cy + 24);
+                    g.setColor(SLATE200);
+                    drawCentered(g, "BEST SCORE: " + String.format("%06d", highScore), cx + pw / 4, cy + 24);
+                    g.setFont(pixel(9f));
+                    g.setColor(YELLOW400);
+                    drawCentered(g, "LEADERBOARD RANK: " + (leaderboardRank == 0 ? ">10" : "#" + leaderboardRank)
+                            + " OF 10", cx, cy + 48);
+                    g.setFont(vt(15f));
+                    g.setColor(SLATE400);
+                    drawCentered(g, "PRESS ENTER OR CLICK TO CONTINUE", cx, cy + 91);
+                } else {
+                    g.setFont(pixel(36f));
+                    for (int rr = 8; rr >= 2; rr -= 3) {
+                        g.setColor(new Color(255, 0, 85, 28));
+                        for (int a = 0; a < 360; a += 45)
+                            drawCentered(g, overlayTitle, cx + (int) (rr * Math.cos(Math.toRadians(a))),
+                                    cy - 22 + (int) (rr * Math.sin(Math.toRadians(a))));
+                    }
+                    g.setColor(YELLOW400);
+                    drawCentered(g, overlayTitle, cx, cy - 22);
+                    g.setFont(pixel(14f));
+                    g.setColor(CYAN300);
+                    drawCentered(g, overlaySubtitle, cx, cy + 12);
                 }
-                g.setColor(YELLOW400);
-                drawCentered(g, overlayTitle, cx, cy - 22);
-                g.setFont(pixel(14f));
-                g.setColor(CYAN300);
-                drawCentered(g, overlaySubtitle, cx, cy + 12);
             }
             g.dispose();
         }
@@ -1876,7 +1937,7 @@ public class PacManGame extends JFrame {
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 16, 0));
         right.setOpaque(false);
         right.add(new MuteButton());
-        right.add(label("PAC-MAN V3.0", vt(22f), PURPLE400));
+        right.add(label("PAC-MAN V3.5", vt(22f), PURPLE400));
         header.add(right, BorderLayout.EAST);
         return header;
     }
@@ -2239,9 +2300,18 @@ public class PacManGame extends JFrame {
             card.setAlignmentX(CENTER_ALIGNMENT);
             card.setMaximumSize(new Dimension(640, 110));
             card.addActionListener(e -> {
+<<<<<<< HEAD
                 if (!configureRun())
                     return;
+=======
+                int previousMap = selectedMap;
+>>>>>>> ea4fc56 (New features)
                 selectedMap = idx;
+                if (!configureRun())
+                {
+                    selectedMap = previousMap;
+                    return;
+                }
                 mapCaption.setText("MAP " + (idx + 1) + ": " + MAP_NAMES[idx]);
                 cards.show(center, "game");
                 startNewGame();
@@ -2277,6 +2347,16 @@ public class PacManGame extends JFrame {
         bindKey("pressed RIGHT", () -> setNext(1, 0));
         bindKey("pressed D", () -> setNext(1, 0));
         bindKey("pressed P", () -> togglePause("PRESS P TO RESUME"));
+        bindKey("pressed ENTER", () -> {
+            if (overlayVisible) {
+                if (gameOver)
+                    startNewGame();
+                else if (gamePaused) {
+                    gamePaused = false;
+                    hideOverlay();
+                }
+            }
+        });
     }
 
     void bindKey(String key, Runnable action) {
@@ -2619,12 +2699,19 @@ public class PacManGame extends JFrame {
         // PHOTOS: put dev1.png, dev2.png, dev3.png in the images/ folder.
         JPanel cardsRow = new JPanel(new GridLayout(1, 3, 16, 0));
         cardsRow.setOpaque(false);
+<<<<<<< HEAD
+=======
+
+>>>>>>> ea4fc56 (New features)
         cardsRow.add(new DevCard("", "JUNAED AHAMED", "LEAD DEVELOPER", CYAN400, CYAN950, new Color(0x155E75),
                 devPhotos[2]));
-        cardsRow.add(
-                new DevCard("", "IMTIYAZ ALI", "GAME ARCHITECT", PINK400, PINK950, new Color(0x9D174D), devPhotos[1]));
+
+        cardsRow.add(new DevCard("", "IMTIYAZ ALI", "GAME ARCHITECT", PINK400, PINK950, new Color(0x9D174D), 
+                devPhotos[1]));
+
         cardsRow.add(new DevCard("", "MD UDOY HOSSAIN JOY", "UI/UX DESIGNER", GREEN400, GREEN950, new Color(0x166534),
                 devPhotos[0]));
+                
         cardsRow.setAlignmentX(CENTER_ALIGNMENT);
         p.add(cardsRow);
         p.add(Box.createVerticalStrut(14));
