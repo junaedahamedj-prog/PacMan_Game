@@ -3,17 +3,9 @@ import java.awt.event.*;
 import java.awt.font.TextAttribute;
 import java.awt.geom.*;
 import java.awt.image.BufferedImage;
-import java.awt.image.ConvolveOp;
-import java.awt.image.Kernel;
-import java.awt.image.ConvolveOp;
-import java.awt.image.Kernel;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-<<<<<<< HEAD
-import java.io.IOException;
-=======
->>>>>>> ea4fc56 (New features)
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
@@ -852,10 +844,7 @@ public class PacManGame extends JFrame {
 
     static void finishGame(boolean victory) {
         gameOver = true;
-<<<<<<< HEAD
-=======
         mazesCleared = victory ? 1 : 0;
->>>>>>> ea4fc56 (New features)
         if (!resultRecorded) {
             resultRecorded = true;
             if (score > highScore) {
@@ -868,10 +857,7 @@ public class PacManGame extends JFrame {
                 List<RunRecord> records = LeaderboardStore.load();
                 records.add(record);
                 LeaderboardStore.sortAndLimit(records);
-<<<<<<< HEAD
-=======
                 leaderboardRank = records.indexOf(record) + 1;
->>>>>>> ea4fc56 (New features)
                 LeaderboardStore.save(records);
                 if (leaderboardPanel != null)
                     leaderboardPanel.refresh();
@@ -1013,10 +999,12 @@ public class PacManGame extends JFrame {
         vtBase = readFont("VT323-Regular.ttf");
     }
 
-    /** Press Start 2P (font-pixel) */
+    /** VT323 keeps the arcade look while scaling UI text for readability. */
     static Font pixel(float size) {
         loadFonts();
-        return pixelBase != null ? pixelBase.deriveFont(size) : new Font(Font.MONOSPACED, Font.BOLD, Math.round(size));
+        float readableSize = size * 1.5f;
+        return vtBase != null ? vtBase.deriveFont(readableSize)
+                : new Font(Font.MONOSPACED, Font.PLAIN, Math.max(1, Math.round(readableSize)));
     }
 
     /** VT323 (font-vt) */
@@ -2300,15 +2288,9 @@ public class PacManGame extends JFrame {
             card.setAlignmentX(CENTER_ALIGNMENT);
             card.setMaximumSize(new Dimension(640, 110));
             card.addActionListener(e -> {
-<<<<<<< HEAD
-                if (!configureRun())
-                    return;
-=======
                 int previousMap = selectedMap;
->>>>>>> ea4fc56 (New features)
                 selectedMap = idx;
-                if (!configureRun())
-                {
+                if (!configureRun()) {
                     selectedMap = previousMap;
                     return;
                 }
@@ -2671,7 +2653,7 @@ public class PacManGame extends JFrame {
             g2.setFont(vt(20f));
             fm = g2.getFontMetrics();
             g2.setColor(Color.WHITE);
-            g2.drawString(role, (w - fm.stringWidth(role)) / 2, y + SIZE + 62);
+            g2.drawString(role, (w - fm.stringWidth(role)) / 2, y + SIZE + 46);
 
             g2.dispose();
         }
@@ -2699,10 +2681,6 @@ public class PacManGame extends JFrame {
         // PHOTOS: put dev1.png, dev2.png, dev3.png in the images/ folder.
         JPanel cardsRow = new JPanel(new GridLayout(1, 3, 16, 0));
         cardsRow.setOpaque(false);
-<<<<<<< HEAD
-=======
-
->>>>>>> ea4fc56 (New features)
         cardsRow.add(new DevCard("", "JUNAED AHAMED", "LEAD DEVELOPER", CYAN400, CYAN950, new Color(0x155E75),
                 devPhotos[2]));
 
